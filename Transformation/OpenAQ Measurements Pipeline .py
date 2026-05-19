@@ -55,12 +55,13 @@ WITH current_measurements AS (
         CAST(parameter_units AS STRING) AS parameter_units,
         CAST(value AS DOUBLE) AS parameter_value,
         CAST(load_date_from AS DATE) AS load_date,
+        date_format(CAST(load_date_from AS DATE), 'yyyyMMdd') AS date_id,
         to_timestamp(api_call_timestamp, "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX") AS sys_load_ts,
-        CAST(sys_source_from AS STRING) AS sys_source_from
+        CAST(sys_source_from AS STRING) AS sys_source_from,
+        CAST(1 AS INT) AS source_priority
     FROM measurements
     WHERE sensor_id IS NOT NULL
       AND load_date_from IS NOT NULL
-      AND parameter_display_name = 'pm25'
 ),
 
 historical_raw AS (
@@ -72,7 +73,7 @@ historical_raw AS (
         to_date(to_timestamp(regexp_replace(datetime, '^"|"$', ''), "yyyy-MM-dd'T'HH:mm:ssXXX")) AS load_date_clean,
         to_timestamp(regexp_replace(datetime, '^"|"$', ''), "yyyy-MM-dd'T'HH:mm:ssXXX") AS sys_load_ts_clean
     FROM measurements_historical
-    WHERE regexp_replace(parameter, '^"|"$', '') = 'PM2.5'
+    WHERE regexp_replace(parameter, '^"|"$', '') = 'pm25'
       AND sensors_id IS NOT NULL
       AND datetime IS NOT NULL
 ),
@@ -86,8 +87,10 @@ historical_measurements AS (
         units_clean AS parameter_units,
         AVG(value_clean) AS parameter_value,
         load_date_clean AS load_date,
+        date_format(load_date_clean, 'yyyyMMdd') AS date_id,
         MIN(sys_load_ts_clean) AS sys_load_ts,
-        CAST('historical_openaq' AS STRING) AS sys_source_from
+        CAST('historical_openaq' AS STRING) AS sys_source_from,
+        CAST(2 AS INT) AS source_priority
     FROM historical_raw
     WHERE load_date_clean IS NOT NULL
       AND sensor_id_clean IS NOT NULL
@@ -110,7 +113,7 @@ ranked_measurements AS (
         *,
         ROW_NUMBER() OVER (
             PARTITION BY sensor_id, load_date
-            ORDER BY sys_load_ts DESC
+            ORDER BY source_priority ASC, sys_load_ts DESC
         ) AS rn
     FROM unioned_measurements
 )
@@ -123,7 +126,7 @@ SELECT
     parameter_units,
     parameter_value,
     load_date,
-    date_format(load_date, 'yyyyMMdd') AS date_id,
+    date_id,
     sys_load_ts,
     sys_source_from
 FROM ranked_measurements
@@ -146,44 +149,18 @@ current_df = transformed_measurements.toDF()
 current_df = current_df.dropDuplicates(["sys_unique_key"])
 
 print("current_df count:", current_df.count())
+current_df.groupBy("sys_source_from").count().show(truncate=False)
 
 
-# Keep S3/Athena incremental
-try:
-    existing_curated = glueContext.create_dynamic_frame.from_catalog(
-        database="air-quality-db",
-        table_name="fact_sensor_measure",
-        transformation_ctx="existing_fact_sensor_measure"
-    )
-
-    existing_keys_df = existing_curated.toDF() \
-        .select("sys_unique_key") \
-        .dropDuplicates(["sys_unique_key"])
-
-    incremental_df = current_df.join(
-        existing_keys_df,
-        on="sys_unique_key",
-        how="left_anti"
-    )
-
-except Exception as e:
-    print("Could not read existing Athena/S3 table. Treating as first load.")
-    print(str(e))
-    incremental_df = current_df
-
-
-print("incremental_df count:", incremental_df.count())
-
-
-incremental_measurements = DynamicFrame.fromDF(
-    incremental_df,
+full_measurements = DynamicFrame.fromDF(
+    current_df,
     glueContext,
-    "incremental_measurements"
+    "full_measurements"
 )
 
 
 EvaluateDataQuality().process_rows(
-    frame=DynamicFrame.fromDF(current_df, glueContext, "dq_current_measurements"),
+    frame=full_measurements,
     ruleset=DEFAULT_DATA_QUALITY_RULESET,
     publishing_options={
         "dataQualityEvaluationContext": "fact_sensor_measure_data_quality",
@@ -196,7 +173,13 @@ EvaluateDataQuality().process_rows(
 )
 
 
-# Write only new rows to S3/Athena
+# Full refresh S3/Athena
+glueContext.purge_s3_path(
+    "s3://air-quality-analysis-project-2026/Transformation/openaq/fact_sensor_measure/",
+    options={"retentionPeriod": 0}
+)
+
+
 s3_sink = glueContext.getSink(
     path="s3://air-quality-analysis-project-2026/Transformation/openaq/fact_sensor_measure/",
     connection_type="s3",
@@ -216,17 +199,13 @@ s3_sink.setFormat(
     compression="snappy"
 )
 
-s3_sink.writeFrame(incremental_measurements)
+s3_sink.writeFrame(full_measurements)
 
 
-# Fully refresh RDS from current_df, not incremental_df
-rds_df = current_df
-
-print("rds_df count:", rds_df.count())
-
+# Full refresh RDS
 jdbc_url = "jdbc:postgresql://air-quality-warehouse.cynamiwwmnme.us-east-1.rds.amazonaws.com:5432/air_qualiyt_dw"
 
-rds_df.write \
+current_df.write \
     .format("jdbc") \
     .option("url", jdbc_url) \
     .option("dbtable", "fact_sensor_measure") \
