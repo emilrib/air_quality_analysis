@@ -4,20 +4,8 @@ from pyspark.context import SparkContext
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from pyspark.sql.functions import (
-    explode,
-    sequence,
-    to_date,
-    date_format,
-    year,
-    quarter,
-    month,
-    dayofmonth,
-    dayofweek,
-    weekofyear,
-    when,
-    concat,
-    lpad,
-    col
+    explode, sequence, to_date, date_format, year, quarter, month,
+    dayofmonth, dayofweek, weekofyear, when, concat, lpad, col
 )
 
 args = getResolvedOptions(sys.argv, ["JOB_NAME"])
@@ -58,11 +46,26 @@ CREATE TABLE IF NOT EXISTS fact_sensor_measure (
     parameter_value DOUBLE PRECISION,
     load_date DATE,
     sys_load_ts TIMESTAMP,
-    sys_source_from VARCHAR(255)
+    sys_source_from VARCHAR(255),
+    date_id VARCHAR(8)
+);
+
+CREATE TABLE IF NOT EXISTS fact_weather (
+    dw_unique_key VARCHAR(255) PRIMARY KEY,
+    sys_source_id VARCHAR(255) NOT NULL,
+    date_id VARCHAR(8) NOT NULL,
+    weather_code INTEGER,
+    precipitation_sum DOUBLE PRECISION,
+    precipitation_hours DOUBLE PRECISION,
+    rain_sum DOUBLE PRECISION,
+    snowfall_sum DOUBLE PRECISION,
+    wind_speed_10m_max DOUBLE PRECISION,
+    wind_direction_10m_dominant DOUBLE PRECISION,
+    sys_load_ts TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS dim_date (
-    date_key INTEGER PRIMARY KEY,
+    sys_unique_key VARCHAR(8) PRIMARY KEY,
     full_date DATE NOT NULL UNIQUE,
     year INTEGER NOT NULL,
     quarter INTEGER NOT NULL,
@@ -76,7 +79,6 @@ CREATE TABLE IF NOT EXISTS dim_date (
 );
 """
 
-# Trigger table creation
 empty_df = spark.createDataFrame([], """
     sys_unique_key STRING,
     location_id STRING,
@@ -103,8 +105,6 @@ empty_df.write \
     .mode("append") \
     .save()
 
-
-# Build date dimension
 date_df = spark.sql("""
 SELECT explode(
     sequence(
@@ -120,31 +120,20 @@ dim_date_df = date_df.select(
         year(col("full_date")),
         lpad(month(col("full_date")), 2, "0"),
         lpad(dayofmonth(col("full_date")), 2, "0")
-    ).cast("int").alias("date_key"),
+    ).alias("sys_unique_key"),
 
     col("full_date"),
-
     year(col("full_date")).cast("int").alias("year"),
     quarter(col("full_date")).cast("int").alias("quarter"),
     month(col("full_date")).cast("int").alias("month"),
-
     date_format(col("full_date"), "MMMM").alias("month_name"),
-
     dayofmonth(col("full_date")).cast("int").alias("day_of_month"),
     dayofweek(col("full_date")).cast("int").alias("day_of_week"),
-
     date_format(col("full_date"), "EEEE").alias("day_name"),
-
     weekofyear(col("full_date")).cast("int").alias("week_of_year"),
-
-    when(
-        dayofweek(col("full_date")).isin(1, 7),
-        True
-    ).otherwise(False).alias("is_weekend")
+    when(dayofweek(col("full_date")).isin(1, 7), True).otherwise(False).alias("is_weekend")
 )
 
-
-# Overwrite dim_date every run
 dim_date_df.write \
     .format("jdbc") \
     .option("url", jdbc_url) \
