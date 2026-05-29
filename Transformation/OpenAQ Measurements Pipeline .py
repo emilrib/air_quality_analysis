@@ -209,8 +209,8 @@ current_df.write \
     .format("jdbc") \
     .option("url", jdbc_url) \
     .option("dbtable", "fact_sensor_measure") \
-    .option("user", "cappuccino") \
-    .option("password", "Airquality-Dashboard26*") \
+    .option("user", "YOUR_USERNAME_HERE") \
+    .option("password", "YOUR_PASSWORD_HERE") \
     .option("driver", "org.postgresql.Driver") \
     .option("truncate", "true") \
     .mode("overwrite") \

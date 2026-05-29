@@ -164,8 +164,8 @@ rds_df.write \
     .format("jdbc") \
     .option("url", jdbc_url) \
     .option("dbtable", "dim_sensor_location") \
-    .option("user", "cappuccino") \
-    .option("password", "Airquality-Dashboard26*") \
+    .option("user", "YOUR_USERNAME_HERE") \
+    .option("password", "YOUR_PASSWORD_HERE") \
     .option("driver", "org.postgresql.Driver") \
     .mode("append") \
     .save()

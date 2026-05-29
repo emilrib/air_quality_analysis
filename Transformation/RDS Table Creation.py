@@ -18,8 +18,8 @@ job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
 jdbc_url = "jdbc:postgresql://air-quality-warehouse.cynamiwwmnme.us-east-1.rds.amazonaws.com:5432/air_qualiyt_dw"
-db_user = "cappuccino"
-db_password = "Airquality-Dashboard26*"
+db_user = "YOUR_USERNAME_HERE"
+db_password = "YOUR_PASSWORD_HERE"
 
 create_tables_sql = """
 CREATE TABLE IF NOT EXISTS dim_sensor_location (

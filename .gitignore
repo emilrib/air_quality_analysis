@@ -1,0 +1,41 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# macOS system files
+.DS_Store
+
+# IDE/editor files
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build/distribution files
+build/
+dist/
+*.egg-info/
+
+# Local data files
+*.csv
+*.json
+*.parquet
+*.xlsx
