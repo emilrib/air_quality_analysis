@@ -173,9 +173,12 @@ def lambda_handler(event, context):
     now_utc = datetime.now(timezone.utc)
     api_call_timestamp = now_utc.isoformat()
 
-    # Calculate yesterday's date dynamically
+    # Calculate yesterday's and day before date dynamically
     yesterday = now_utc - timedelta(days=1)
     yesterday_str = yesterday.strftime("%Y-%m-%d")
+    
+    daybefore = now_utc - timedelta(days=2)
+    daybefore_str = daybefore.strftime("%Y-%m-%d")
     
     # Numeric Run ID, e.g. 20260430101530
     run_id_numeric = int(now_utc.strftime("%Y%m%d%H%M%S"))
@@ -184,8 +187,8 @@ def lambda_handler(event, context):
     max_locations = int(event.get("max_locations", MAX_LOCATIONS))
     
     # Use event payload if provided (useful for manual backfills), 
-    # otherwise default to yesterday for standard automated runs.
-    start_date = event.get("start_date", yesterday_str)
+    # otherwise default to yesterday and day before for standard automated runs.
+    start_date = event.get("start_date", daybefore_str)
     end_date = event.get("end_date", yesterday_str)
 
     input_key = find_latest_parquet_key(BUCKET, locations_prefix)
